@@ -128,6 +128,7 @@ pub struct RuntimeParams {
     pub max_db_erb_thresh: f32,
     pub max_db_df_thresh: f32,
     pub reduce_mask: ReduceMask,
+    pub bypass: bool,
 }
 impl RuntimeParams {
     pub fn new(
@@ -138,6 +139,7 @@ impl RuntimeParams {
         max_db_erb_thresh: f32,
         max_db_df_thresh: f32,
         reduce_mask: ReduceMask,
+        bypass: bool,
     ) -> Self {
         let post_filter = post_filter_beta > 0.;
         Self {
@@ -149,6 +151,7 @@ impl RuntimeParams {
             max_db_erb_thresh,
             max_db_df_thresh,
             reduce_mask,
+            bypass,
         }
     }
     pub fn with_post_filter(mut self, beta: f32) -> Self {
@@ -178,6 +181,10 @@ impl RuntimeParams {
         self.reduce_mask = red;
         self
     }
+    pub fn with_bypass(mut self, bypass: bool) -> Self {
+        self.bypass = bypass;
+        self
+    }
     pub const fn default_with_ch(channels: usize) -> Self {
         RuntimeParams {
             n_ch: channels,
@@ -188,6 +195,7 @@ impl RuntimeParams {
             max_db_erb_thresh: 30.,
             max_db_df_thresh: 20.,
             reduce_mask: ReduceMask::MEAN,
+            bypass: false,
         }
     }
 }
@@ -223,6 +231,7 @@ pub struct DfTract {
     pub max_db_erb_thresh: f32,
     pub max_db_df_thresh: f32,
     pub reduce_mask: ReduceMask,
+    pub bypass: bool,
     pub atten_lim: Option<f32>,
     pub df_states: Vec<DFState>,
     pub spec_buf: Tensor, // Real-valued spectrogram buffer of shape [n_ch, 1, 1, n_freqs, 2]
@@ -362,6 +371,7 @@ impl DfTract {
             df_states,
             post_filter: rp.post_filter,
             post_filter_beta: rp.post_filter_beta,
+            bypass: rp.bypass,
             skip_counter: 0,
         };
         m.init()?;
@@ -400,6 +410,10 @@ impl DfTract {
             log::debug!("Setting attenuation limit to {:.1} dB", lim);
             Some(10f32.powf(-lim / 20.))
         };
+    }
+
+    pub fn set_bypass(&mut self, bypass: bool) {
+        self.bypass = bypass;
     }
 
     pub fn init(&mut self) -> Result<()> {
@@ -512,6 +526,10 @@ impl DfTract {
 
     /// Process a noisy time domain sample and return the enhanced sample via mutable argument.
     pub fn process(&mut self, noisy: ArrayView2<f32>, mut enh: ArrayViewMut2<f32>) -> Result<f32> {
+        if self.bypass {
+            enh.assign(&noisy);
+            return Ok(0.);
+        }
         debug_assert_eq!(noisy.len_of(Axis(0)), enh.len_of(Axis(0)));
         debug_assert_eq!(noisy.len_of(Axis(1)), enh.len_of(Axis(1)));
         debug_assert_eq!(noisy.len_of(Axis(1)), self.hop_size);

@@ -15,9 +15,9 @@ default = ["default-model-ll"]
 
 [dependencies]
 deep_filter = { path = "../libDF", default-features = false, features = [
-  "tract",
-  "use-jemalloc",
-  "default-model",
+    "tract",
+    "use-jemalloc",
+    "default-model",
 ] }
 ladspa = {git = "https://github.com/xobs/ladspa.rs", branch = "bitflags-and-null-pointer-fix"}
 ndarray = "^0.15"
