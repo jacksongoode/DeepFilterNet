@@ -3,10 +3,10 @@ use df::transforms::{
     TransformError,
 };
 use df::{Complex32, DFState, UNIT_NORM_INIT};
-use ndarray::{Array1, Array2, Array3, Array4, ArrayD, ArrayView4, Axis, ShapeError};
+use ndarray::{Array1, Array2, Array3, Array4, ArrayD, Axis, ShapeError};
 use numpy::{
-    IntoPyArray, PyArray1, PyArray2, PyArray3, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2,
-    PyReadonlyArray3, PyReadonlyArrayDyn,
+    PyArray1, PyArray2, PyArray3, PyArrayDyn, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2,
+    PyReadonlyArray3, PyReadonlyArrayDyn, PyUntypedArrayMethods, ToPyArray,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -43,7 +43,7 @@ impl DF {
         py: Python<'py>,
         input: PyReadonlyArray2<'py, f32>,
         reset: Option<bool>,
-    ) -> PyResult<&'py PyArray3<Complex32>> {
+    ) -> PyResult<Py<PyArray3<Complex32>>> {
         let frame_size = self.state.frame_size;
         let freq_size = self.state.freq_size;
         let channels = input.shape()[0];
@@ -68,7 +68,7 @@ impl DF {
                 self.state.analysis(ichunk, ochunk)
             }
         }
-        Ok(output.into_pyarray(py))
+        Ok(output.to_pyarray(py).into())
     }
 
     fn synthesis<'py>(
@@ -76,7 +76,7 @@ impl DF {
         py: Python<'py>,
         input: PyReadonlyArray3<Complex32>,
         reset: Option<bool>,
-    ) -> PyResult<&'py PyArray2<f32>> {
+    ) -> PyResult<Py<PyArray2<f32>>> {
         let frame_size = self.state.frame_size;
         let freq_size = self.state.freq_size;
         let channels = input.shape()[0];
@@ -103,15 +103,15 @@ impl DF {
                 self.state.synthesis(ichunk, ochunk);
             }
         }
-        Ok(output.into_pyarray(py))
+        Ok(output.to_pyarray(py).into())
     }
 
-    fn erb_widths<'py>(&self, py: Python<'py>) -> PyResult<&'py PyArray1<usize>> {
-        Ok(self.state.erb.clone().into_pyarray(py))
+    fn erb_widths<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<usize>>> {
+        Ok(self.state.erb.clone().to_pyarray(py).into())
     }
 
-    fn fft_window<'py>(&self, py: Python<'py>) -> PyResult<&'py PyArray1<f32>> {
-        Ok(self.state.window.clone().into_pyarray(py))
+    fn fft_window<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
+        Ok(self.state.window.clone().to_pyarray(py).into())
     }
 
     fn sr(&self) -> usize {
@@ -136,7 +136,7 @@ impl DF {
 }
 
 #[pymodule]
-fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
+fn libdf(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DF>()?;
 
     #[pyfn(m)]
@@ -146,7 +146,7 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         input: PyReadonlyArrayDyn<Complex32>,
         erb_fb: PyReadonlyArray1<usize>,
         db: Option<bool>,
-    ) -> PyResult<&'py PyArrayDyn<f32>> {
+    ) -> PyResult<Py<PyArrayDyn<f32>>> {
         // Input shape [B, C, T, F]
         let indim = input.ndim();
         let input = input.as_array();
@@ -165,11 +165,10 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
                 )))
             }
         };
-        let input: ArrayView4<Complex32> = input
-            .into_shape((bs, ch, t, f))
-            .to_py_err()?
-            .into_dimensionality()
-            .to_py_err()?;
+        let input: Array4<Complex32> = match input.to_shape((bs, ch, t, f)) {
+            Ok(a) => a.to_owned(),
+            Err(e) => return Err(PyValueError::new_err(e.to_string())),
+        };
         let mut output = Array4::zeros((bs, ch, t, erb_fb.len()));
 
         for (in_b, mut out_b) in input.outer_iter().zip(output.outer_iter_mut()) {
@@ -177,18 +176,20 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         }
         let output: ArrayD<f32> = match indim {
             2 => output
-                .into_shape((t, erb_fb.len()))
-                .to_py_err()?
+                .to_shape((t, erb_fb.len()))
+                .unwrap()
                 .into_dimensionality()
-                .to_py_err()?,
+                .unwrap()
+                .to_owned(),
             3 => output
-                .into_shape((ch, t, erb_fb.len()))
-                .to_py_err()?
+                .to_shape((ch, t, erb_fb.len()))
+                .unwrap()
                 .into_dimensionality()
-                .to_py_err()?,
-            _ => output.into_dimensionality().to_py_err()?,
+                .unwrap()
+                .to_owned(),
+            _ => output.into_dimensionality().unwrap(),
         };
-        Ok(output.into_pyarray(py))
+        Ok(output.to_pyarray(py).into())
     }
 
     #[pyfn(m)]
@@ -197,7 +198,7 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         py: Python<'py>,
         input: PyReadonlyArrayDyn<f32>,
         erb_fb: PyReadonlyArray1<usize>,
-    ) -> PyResult<&'py PyArrayDyn<f32>> {
+    ) -> PyResult<Py<PyArrayDyn<f32>>> {
         // Input shape [B, C, T, E]
         let indim = input.ndim();
         let input = input.as_array();
@@ -223,11 +224,10 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
                 )))
             }
         };
-        let input: ArrayView4<f32> = input
-            .into_shape((bs, ch, t, e))
-            .to_py_err()?
-            .into_dimensionality()
-            .to_py_err()?;
+        let input: Array4<f32> = match input.to_shape((bs, ch, t, e)) {
+            Ok(a) => a.to_owned(),
+            Err(e) => return Err(PyValueError::new_err(e.to_string())),
+        };
         let freq_size = erb_fb.as_array().sum();
         let mut output = Array4::zeros((bs, ch, t, freq_size));
         for (in_b, mut out_b) in input.outer_iter().zip(output.outer_iter_mut()) {
@@ -235,18 +235,20 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         }
         let output: ArrayD<f32> = match indim {
             2 => output
-                .into_shape((t, freq_size))
-                .to_py_err()?
+                .to_shape((t, freq_size))
+                .unwrap()
                 .into_dimensionality()
-                .to_py_err()?,
+                .unwrap()
+                .to_owned(),
             3 => output
-                .into_shape((ch, t, freq_size))
-                .to_py_err()?
+                .to_shape((ch, t, freq_size))
+                .unwrap()
                 .into_dimensionality()
-                .to_py_err()?,
-            _ => output.into_dimensionality().to_py_err()?,
+                .unwrap()
+                .to_owned(),
+            _ => output.into_dimensionality().unwrap(),
         };
-        Ok(output.into_pyarray(py))
+        Ok(output.to_pyarray(py).into())
     }
 
     #[pyfn(m)]
@@ -256,7 +258,7 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         erb: PyReadonlyArray3<f32>,
         alpha: f32,
         state: Option<PyReadonlyArray2<f32>>,
-    ) -> PyResult<&'py PyArray3<f32>> {
+    ) -> PyResult<Py<PyArray3<f32>>> {
         // Input shape [C, T, F]
         // State shape [C, F]
         let mut erb = unsafe { erb.as_array_mut() };
@@ -270,7 +272,7 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         } else {
             transforms::erb_norm(&mut erb.view_mut(), None, alpha).to_py_err()?;
         };
-        Ok(erb.into_owned().into_pyarray(py))
+        Ok(erb.into_owned().to_pyarray(py).into())
     }
 
     #[pyfn(m)]
@@ -280,7 +282,7 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         spec: PyReadonlyArray3<Complex32>,
         alpha: f32,
         state: Option<PyReadonlyArray2<f32>>,
-    ) -> PyResult<&'py PyArray3<Complex32>> {
+    ) -> PyResult<Py<PyArray3<Complex32>>> {
         // Input shape [C, T, F]
         // State shape [C, F]
         let mut spec = spec.as_array().to_owned();
@@ -294,32 +296,28 @@ fn libdf(_py: Python, m: &PyModule) -> PyResult<()> {
         } else {
             transforms::unit_norm(&mut spec.view_mut(), None, alpha).to_py_err()?;
         };
-        Ok(spec.into_pyarray(py))
+        Ok(spec.to_pyarray(py).into())
     }
 
     #[pyfn(m)]
     #[pyo3(name = "unit_norm_init")]
-    fn unit_norm_init(py: Python, num_freq_bins: usize) -> PyResult<&PyArray2<f32>> {
-        let arr = Array1::<f32>::linspace(UNIT_NORM_INIT[0], UNIT_NORM_INIT[1], num_freq_bins)
-            .into_shape([1, num_freq_bins])
-            .to_py_err()?;
-        Ok(arr.into_pyarray(py))
+    fn unit_norm_init(py: Python, num_freq_bins: usize) -> PyResult<Py<PyArray2<f32>>> {
+        let arr = Array1::<f32>::linspace(UNIT_NORM_INIT[0], UNIT_NORM_INIT[1], num_freq_bins);
+        let arr = arr.to_shape([1, num_freq_bins]).to_py_err()?;
+        Ok(arr.to_pyarray(py).into())
     }
 
     Ok(())
 }
 
-trait ResultExt<T> {
-    fn to_py_err(self) -> PyResult<T>;
+impl<T> ResultExt<T> for Result<T, ShapeError> {
+    fn to_py_err(self) -> PyResult<T> {
+        self.map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }
 
-impl<T> ResultExt<T> for std::result::Result<T, ShapeError> {
-    fn to_py_err(self) -> PyResult<T> {
-        match self {
-            Ok(x) => Ok(x),
-            Err(e) => Err(PyRuntimeError::new_err(format!("DF shape error: {e:?}"))),
-        }
-    }
+trait ResultExt<T> {
+    fn to_py_err(self) -> PyResult<T>;
 }
 
 impl<T> ResultExt<T> for std::result::Result<T, TransformError> {

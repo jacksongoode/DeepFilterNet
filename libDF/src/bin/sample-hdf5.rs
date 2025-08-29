@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     let ds = Hdf5Dataset::new(p)?;
     let k = match args.get(2) {
         Some(k) => k.to_string(),
-        None => ds.keys()?.choose(&mut rand::thread_rng()).unwrap().to_string(),
+        None => ds.keys()?.choose(&mut rand::rng()).unwrap().to_string(),
     };
     let data = ds.read(&k).unwrap();
     let out_dir = args.get(3).cloned().unwrap_or_else(|| "out".to_owned());

@@ -5,7 +5,8 @@ use std::time::Instant;
 
 use ndarray::{concatenate, prelude::*, Slice};
 use ndarray_rand::rand::{prelude::IteratorRandom, seq::SliceRandom, Rng};
-use ndarray_rand::{rand_distr::Normal, rand_distr::Uniform, RandomExt};
+use ndarray_rand::rand_distr::{StandardNormal, Uniform};
+use ndarray_rand::RandomExt;
 use thiserror::Error;
 
 use self::BiquadFilter::*;
@@ -700,7 +701,7 @@ fn gen_noise_with_scratch(
     let sr = sr as usize;
     let ch = num_channels as usize;
     let mut noise = if f_decay != 0. {
-        let mut noise = Array::random((ch, sr), Normal::new(0., 1.).unwrap());
+        let mut noise = Array::random((ch, sr), StandardNormal);
         let spec = Array2::uninit([ch, sr / 2 + 1]);
         // Safety: Will be fully overwritten by fft transform.
         let mut spec = unsafe { spec.assume_init() };
@@ -715,7 +716,7 @@ fn gen_noise_with_scratch(
         noise
     } else {
         // Fast path for white noise
-        Array::random((ch, sr), Normal::new(0., 1.).unwrap())
+        Array::random((ch, sr), StandardNormal)
     };
     let f = thread_rng()?.uniform(0.01, 0.95) / find_max_abs(&noise).unwrap().max(1.);
     noise *= f;

@@ -307,14 +307,15 @@ pub fn erb_norm(
     // state shape: [C, F]
     let mut state = state.unwrap_or_else(|| {
         let b = input.len_of(Axis(2));
-        let state_ch0 = Array1::<f32>::linspace(MEAN_NORM_INIT[0], MEAN_NORM_INIT[1], b)
-            .into_shape([1, b])
-            .unwrap();
-        let mut state = state_ch0.clone();
-        for _ in 1..input.len_of(Axis(0)) {
-            state.append(Axis(0), state_ch0.view()).unwrap()
+        let binding = Array1::<f32>::linspace(MEAN_NORM_INIT[0], MEAN_NORM_INIT[1], b);
+        let state_ch0_binding = binding.to_shape([1, b]).unwrap();
+        let state_ch0 = state_ch0_binding.view();
+        let mut new_state = Vec::with_capacity(input.len_of(Axis(0)));
+        for _ in 0..input.len_of(Axis(0)) {
+            new_state.push(state_ch0.clone());
         }
-        state
+        let views: Vec<_> = new_state.iter().map(|x| x.view()).collect();
+        ndarray::concatenate(Axis(0), &views).unwrap()
     });
     debug_assert_eq!(state.len_of(Axis(0)), input.len_of(Axis(0)));
     for (mut in_ch, mut s_ch) in input.outer_iter_mut().zip(state.outer_iter_mut()) {
@@ -338,14 +339,15 @@ pub fn unit_norm(
     // state shape: [C, F]
     let mut state = state.unwrap_or_else(|| {
         let f = input.len_of(Axis(2));
-        let state_ch0 = Array1::<f32>::linspace(UNIT_NORM_INIT[0], UNIT_NORM_INIT[1], f)
-            .into_shape([1, f])
-            .unwrap();
-        let mut state = state_ch0.clone();
-        for _ in 1..input.len_of(Axis(0)) {
-            state.append(Axis(0), state_ch0.view()).unwrap()
+        let binding = Array1::<f32>::linspace(UNIT_NORM_INIT[0], UNIT_NORM_INIT[1], f);
+        let state_ch0_binding = binding.to_shape([1, f]).unwrap();
+        let state_ch0 = state_ch0_binding.view();
+        let mut new_state = Vec::with_capacity(input.len_of(Axis(0)));
+        for _ in 0..input.len_of(Axis(0)) {
+            new_state.push(state_ch0.clone());
         }
-        state
+        let views: Vec<_> = new_state.iter().map(|x| x.view()).collect();
+        ndarray::concatenate(Axis(0), &views).unwrap()
     });
     debug_assert_eq!(state.len_of(Axis(0)), input.len_of(Axis(0)));
     for (mut in_ch, mut s_ch) in input.outer_iter_mut().zip(state.outer_iter_mut()) {
@@ -502,7 +504,8 @@ fn bw_filterbank(center_freqs: &[f32], cutoff_bins: &[f32; 8]) -> Result<Array2<
             o[7] += 1.
         }
     }
-    let sum = out.sum_axis(Axis(0)).into_shape((1, 8))?;
+    let sum_binding = out.sum_axis(Axis(0));
+    let sum = sum_binding.to_shape((1, 8))?;
     Ok(out / sum)
 }
 
