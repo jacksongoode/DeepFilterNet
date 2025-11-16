@@ -213,6 +213,9 @@ pub struct DfTract {
     model_path: Option<PathBuf>,
 }
 
+unsafe impl Send for DfTract {}
+unsafe impl Sync for DfTract {}
+
 impl DfTract {
     pub fn model_path(&self) -> Option<String> {
         self.model_path.as_ref().map(|p| p.to_str().unwrap().to_string())
