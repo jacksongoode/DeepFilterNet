@@ -24,18 +24,12 @@ pub struct DfParams {
     enc: Vec<u8>,
     erb_dec: Vec<u8>,
     df_dec: Vec<u8>,
-    model_path: Option<PathBuf>,
 }
 
 impl DfParams {
-    pub fn model_path(&self) -> Option<PathBuf> {
-        self.model_path.clone()
-    }
-
     pub fn new(tar_file: PathBuf) -> Result<Self> {
         let file = File::open(&tar_file).context("Could not open model tar file.")?;
-        let mut params = Self::from_targz(file)?;
-        params.model_path = Some(tar_file);
+        let params = Self::from_targz(file)?;
         Ok(params)
     }
 
@@ -70,7 +64,7 @@ impl DfParams {
                 log::warn!("Found non-matching item in model tar file: {path:?}")
             }
         }
-        Ok(Self { config, enc, erb_dec, df_dec, model_path: None })
+        Ok(Self { config, enc, erb_dec, df_dec })
     }
 }
 
@@ -210,17 +204,12 @@ pub struct DfTract {
     rolling_spec_buf_y: VecDeque<Tensor>, // Enhanced stage 1 spec buf
     rolling_spec_buf_x: VecDeque<Tensor>, // Noisy spec buf
     skip_counter: usize,  // Increment when wanting to skip processing due to low RMS
-    model_path: Option<PathBuf>,
 }
 
 unsafe impl Send for DfTract {}
 unsafe impl Sync for DfTract {}
 
 impl DfTract {
-    pub fn model_path(&self) -> Option<String> {
-        self.model_path.as_ref().map(|p| p.to_str().unwrap().to_string())
-    }
-
     pub fn new(dfp: DfParams, rp: &RuntimeParams) -> Result<Self> {
         let config = dfp.config;
         let model_cfg = config.section(Some("deepfilternet")).unwrap();
@@ -327,7 +316,6 @@ impl DfTract {
             post_filter: rp.post_filter,
             post_filter_beta: rp.post_filter_beta,
             skip_counter: 0,
-            model_path: dfp.model_path,
         };
         m.init()?;
 
