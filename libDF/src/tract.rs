@@ -207,7 +207,6 @@ pub struct DfTract {
 }
 
 unsafe impl Send for DfTract {}
-unsafe impl Sync for DfTract {}
 
 impl DfTract {
     pub fn new(dfp: DfParams, rp: &RuntimeParams) -> Result<Self> {
@@ -414,13 +413,8 @@ impl DfTract {
             TValue::from(self.cplx_buf.clone().into_tensor().permute_axes(&[0, 3, 1, 2])?)
         ))?;
 
-        let lsnr_tensor = enc_emb.pop().unwrap().into_tensor();
-        let lsnr_values = lsnr_tensor.as_slice::<f32>()?;
-        let lsnr = lsnr_values
-            .iter()
-            .copied()
-            .reduce(f32::min)
-            .unwrap_or(0.0);
+        // Note: This will fail if multiple channels are passed in.
+        let &lsnr = enc_emb.pop().unwrap().to_scalar::<f32>()?;
         let c0 = enc_emb.pop().unwrap();
         let emb = enc_emb.pop().unwrap();
 
