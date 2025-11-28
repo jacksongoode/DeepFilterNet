@@ -198,15 +198,13 @@ pub struct DfTract {
     pub atten_lim: Option<f32>,
     pub df_states: Vec<DFState>,
     pub spec_buf: Tensor, // Real-valued spectrogram buffer of shape [n_ch, 1, 1, n_freqs, 2]
-    erb_buf: TValue,      // Real-valued ERB feature buffer of shape [n_ch, 1, 1, n_erb]
-    cplx_buf: TValue,     // Real-valued complex epectrum shape for DF of shape [n_ch, 1, nb_df, 2]
+    erb_buf: Tensor,      // Real-valued ERB feature buffer of shape [n_ch, 1, 1, n_erb]
+    cplx_buf: Tensor,     // Real-valued complex epectrum shape for DF of shape [n_ch, 1, nb_df, 2]
     _m_zeros: Vec<f32>,   // Preallocated buffer for applying a zero mask
     rolling_spec_buf_y: VecDeque<Tensor>, // Enhanced stage 1 spec buf
     rolling_spec_buf_x: VecDeque<Tensor>, // Noisy spec buf
     skip_counter: usize,  // Increment when wanting to skip processing due to low RMS
 }
-
-unsafe impl Send for DfTract {}
 
 impl DfTract {
     pub fn new(dfp: DfParams, rp: &RuntimeParams) -> Result<Self> {
@@ -263,12 +261,12 @@ impl DfTract {
         };
         let spec_shape = [1, 1, 1, n_freqs, 2];
         let spec_buf = unsafe { Tensor::uninitialized_dt(f32::datum_type(), &spec_shape)? };
-        let erb_buf = TValue::from(unsafe {
+        let erb_buf = unsafe {
             Tensor::uninitialized_dt(f32::datum_type(), &[1, 1, 1, nb_erb])?
-        });
-        let cplx_buf = TValue::from(unsafe {
+        };
+        let cplx_buf = unsafe {
             Tensor::uninitialized_dt(f32::datum_type(), &[1, 1, nb_df, 2])?
-        });
+        };
         let _m_zeros = vec![0.0; nb_erb];
 
         let model_type = config.section(Some("train")).unwrap().get("model").unwrap();
@@ -374,8 +372,8 @@ impl DfTract {
             }
         }
         self.spec_buf = Tensor::zero::<f32>(&spec_shape)?;
-        self.erb_buf = TValue::from(Tensor::zero::<f32>(&[ch, 1, 1, self.nb_erb])?);
-        self.cplx_buf = TValue::from(Tensor::zero::<f32>(&[ch, 1, self.nb_df, 2])?);
+        self.erb_buf = Tensor::zero::<f32>(&[ch, 1, 1, self.nb_erb])?;
+        self.cplx_buf = Tensor::zero::<f32>(&[ch, 1, self.nb_df, 2])?;
 
         Ok(())
     }
@@ -395,8 +393,8 @@ impl DfTract {
 
         for (nsy_ch, mut erb_ch, mut cplx_ch, state) in izip!(
             spec.axis_iter(Axis(0)),
-            tvalue_to_array_view_mut(&mut self.erb_buf).axis_iter_mut(Axis(0)),
-            tvalue_to_array_view_mut(&mut self.cplx_buf).axis_iter_mut(Axis(0)),
+            self.erb_buf.to_array_view_mut()?.axis_iter_mut(Axis(0)),
+            self.cplx_buf.to_array_view_mut()?.axis_iter_mut(Axis(0)),
             self.df_states.iter_mut()
         ) {
             let nsy_ch = as_slice_complex(nsy_ch.as_slice().unwrap());
@@ -409,8 +407,8 @@ impl DfTract {
         }
         // Run encoder
         let mut enc_emb = self.enc.run(tvec!(
-            self.erb_buf.clone(),
-            TValue::from(self.cplx_buf.clone().into_tensor().permute_axes(&[0, 3, 1, 2])?)
+            self.erb_buf.clone().into(),
+            TValue::from(self.cplx_buf.clone().permute_axes(&[0, 3, 1, 2])?)
         ))?;
 
         // Note: This will fail if multiple channels are passed in.
@@ -974,17 +972,5 @@ pub fn as_arrayview_mut_complex<'a>(
     unsafe {
         let ptr = buffer.as_ptr() as *mut Complex32;
         ArrayViewMutD::from_shape_ptr(shape, ptr)
-    }
-}
-pub fn tvalue_to_array_view_mut(x: &mut TValue) -> ArrayViewMutD<'_, f32> {
-    unsafe {
-        match x {
-            TValue::Var(x) => {
-                ArrayViewMutD::from_shape_ptr(x.shape(), x.as_ptr_unchecked::<f32>() as *mut f32)
-            },
-            TValue::Const(x) => {
-                ArrayViewMutD::from_shape_ptr(x.shape(), x.as_ptr_unchecked::<f32>() as *mut f32)
-            },
-        }
     }
 }
